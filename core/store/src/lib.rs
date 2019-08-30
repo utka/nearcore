@@ -23,6 +23,9 @@ pub use crate::trie::{
 };
 use near_primitives::hash::CryptoHash;
 use near_primitives::receipt::{Receipt, ReceivedData};
+use metrics::{
+    STORE_WRITE_COUNT,STORE_READ_COUNT,
+    STORE_EXIST_COUNT,STORE_WRITE_BYTES, STORE_READ_BYTES};
 
 pub mod test_utils;
 mod trie;
@@ -52,6 +55,7 @@ impl Store {
     }
 
     pub fn get(&self, column: Option<u32>, key: &[u8]) -> Result<Option<Vec<u8>>, io::Error> {
+        STORE_READ_COUNT.inc();
         self.storage.get(column, key).map(|a| a.map(|b| b.to_vec()))
     }
 
@@ -60,6 +64,7 @@ impl Store {
         column: Option<u32>,
         key: &[u8],
     ) -> Result<Option<T>, io::Error> {
+        STORE_READ_COUNT.inc();
         match self.storage.get(column, key) {
             Ok(Some(bytes)) => match T::try_from_slice(bytes.as_ref()) {
                 Ok(result) => Ok(Some(result)),
@@ -71,6 +76,7 @@ impl Store {
     }
 
     pub fn exists(&self, column: Option<u32>, key: &[u8]) -> Result<bool, io::Error> {
+        STORE_EXIST_COUNT.inc();
         self.storage.get(column, key).map(|value| value.is_some())
     }
 
@@ -82,6 +88,7 @@ impl Store {
         &'a self,
         column: Option<u32>,
     ) -> Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a> {
+        STORE_READ_COUNT.inc();
         self.storage.iter(column)
     }
 }
@@ -148,6 +155,7 @@ impl StoreUpdate {
         if let Some(trie) = self.trie {
             trie.update_cache(&self.transaction)?;
         }
+        STORE_WRITE_COUNT.inc_by(self.transaction.len());
         self.storage.write(self.transaction)
     }
 }
