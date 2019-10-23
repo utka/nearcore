@@ -400,6 +400,7 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 return;
             }
         };
+        peer_msg.checkpoint(msg.len() as u64, self.peer_id());
         match (self.peer_type, self.peer_status, peer_msg) {
             (_, PeerStatus::Connecting, PeerMessage::HandshakeFailure(peer_info, reason)) => {
                 match reason {
