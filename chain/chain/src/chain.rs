@@ -1180,8 +1180,9 @@ impl Chain {
             .into());
         }
         let state_part = self.runtime_adapter.obtain_state_part(&state_root, part_id, num_parts);
+        let compressed_part = lzma::compress(&state_part, 6).expect("compressor should not fail");
 
-        Ok(state_part)
+        Ok(compressed_part)
     }
 
     pub fn set_state_header(
@@ -1390,19 +1391,36 @@ impl Chain {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
-        if !self.runtime_adapter.validate_state_part(&state_root, part_id, num_parts, data) {
-            byzantine_assert!(false);
-            return Err(ErrorKind::Other(
-                "set_state_part failed: validate_state_part failed".into(),
-            )
-            .into());
+        match lzma::decompress(data) {
+            Ok(decompressed_data) => {
+                if !self.runtime_adapter.validate_state_part(
+                    &state_root,
+                    part_id,
+                    num_parts,
+                    &decompressed_data,
+                ) {
+                    byzantine_assert!(false);
+                    return Err(ErrorKind::Other(
+                        "set_state_part failed: validate_state_part failed".into(),
+                    )
+                    .into());
+                }
+
+                // Saving the part data.
+                let mut store_update = self.store.owned_store().store_update();
+                let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
+                store_update.set_ser(COL_STATE_PARTS, &key, &decompressed_data)?;
+                store_update.commit()?;
+            }
+            _ => {
+                byzantine_assert!(false);
+                return Err(ErrorKind::Other(
+                    "set_state_part failed: lzma::decompress failed".into(),
+                )
+                .into());
+            }
         }
 
-        // Saving the part data.
-        let mut store_update = self.store.owned_store().store_update();
-        let key = StatePartKey(sync_hash, shard_id, part_id).try_to_vec()?;
-        store_update.set_ser(COL_STATE_PARTS, &key, data)?;
-        store_update.commit()?;
         Ok(())
     }
 
@@ -2883,4 +2901,16 @@ pub fn collect_receipts_from_response(
 ) -> Vec<Receipt> {
     let receipt_proofs = &receipt_proof_response.iter().map(|x| x.1.clone()).flatten().collect();
     collect_receipts(receipt_proofs)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_compression() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 55, 99, 123, 17, 6, 6, 6];
+        let compressed_data = lzma::compress(&data, 6).unwrap();
+        assert!(data != compressed_data);
+        let decompressed_data = lzma::decompress(&compressed_data).unwrap();
+        assert!(data == decompressed_data);
+    }
 }

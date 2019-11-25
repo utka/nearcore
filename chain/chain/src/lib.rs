@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate lzma;
 
 pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
 pub use error::{Error, ErrorKind};
