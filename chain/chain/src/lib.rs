@@ -2,7 +2,9 @@
 extern crate lazy_static;
 extern crate lzma;
 
-pub use chain::{collect_receipts, Chain, ChainGenesis, MAX_ORPHAN_SIZE};
+pub use chain::{
+    collect_receipts, lzma_decompress, Chain, ChainGenesis, MAX_ORPHAN_SIZE, MAX_PART_LEN,
+};
 pub use error::{Error, ErrorKind};
 pub use finality::{FinalityGadget, FinalityGadgetQuorums};
 pub use store::{ChainStore, ChainStoreAccess, ChainStoreUpdate};

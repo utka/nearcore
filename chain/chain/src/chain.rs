@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Read;
 use std::sync::Arc;
 use std::time::{Duration as TimeDuration, Instant};
 
@@ -48,6 +49,9 @@ const MAX_ORPHAN_AGE_SECS: u64 = 300;
 
 /// Refuse blocks more than this many block intervals in the future (as in bitcoin).
 const ACCEPTABLE_TIME_DIFFERENCE: i64 = 12 * 10;
+
+/// Maximal size of the part of the state which we accept.
+pub const MAX_PART_LEN: u64 = 2 * 1024 * 1024;
 
 enum ApplyChunksMode {
     ThisEpoch,
@@ -1391,7 +1395,7 @@ impl Chain {
         let shard_state_header = self.get_received_state_header(shard_id, sync_hash)?;
         let ShardStateSyncResponseHeader { chunk, .. } = shard_state_header;
         let state_root = chunk.header.inner.prev_state_root;
-        match lzma::decompress(data) {
+        match lzma_decompress(data) {
             Ok(decompressed_data) => {
                 if !self.runtime_adapter.validate_state_part(
                     &state_root,
@@ -2903,14 +2907,72 @@ pub fn collect_receipts_from_response(
     collect_receipts(receipt_proofs)
 }
 
+pub fn lzma_decompress(compressed_data: &Vec<u8>) -> Result<Vec<u8>, Error> {
+    let reader = lzma::LzmaReader::new_decompressor(compressed_data.as_slice()).unwrap();
+    let mut buf = vec![];
+    let mut handle = reader.take(MAX_PART_LEN + 1);
+    handle.read_to_end(&mut buf).unwrap();
+    if buf.len() > MAX_PART_LEN as usize {
+        return Err(ErrorKind::Other("Invalid decompressed data size".into()).into());
+    }
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_compression() {
-        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 55, 99, 123, 17, 6, 6, 6];
+    use crate::{lzma_decompress, MAX_PART_LEN};
+    use rand::Rng;
+
+    fn compress_decompress(data: &Vec<u8>) -> Vec<u8> {
+        println!("len(data) = {:?}", data.len());
         let compressed_data = lzma::compress(&data, 6).unwrap();
-        assert!(data != compressed_data);
-        let decompressed_data = lzma::decompress(&compressed_data).unwrap();
-        assert!(data == decompressed_data);
+        println!("len(compressed_data) = {:?}", compressed_data.len());
+        match lzma_decompress(&compressed_data) {
+            Ok(data) => data,
+            _ => vec![],
+        }
+    }
+
+    fn check_compression_limit(is_random: bool) {
+        let mut data = vec![];
+        let mut rng = rand::thread_rng();
+        for i in 0..MAX_PART_LEN - 1 {
+            if is_random {
+                data.push(rng.gen());
+            } else {
+                data.push((i % 256) as u8);
+            }
+        }
+
+        // Limit minus one
+        let buf = compress_decompress(&data);
+        assert_eq!(data.len(), buf.len());
+        for (a, b) in data.iter().zip(&buf) {
+            assert_eq!(*a, *b)
+        }
+
+        // Limit
+        if is_random {
+            data.push(rng.gen());
+        } else {
+            data.push(255);
+        }
+        let buf = compress_decompress(&data);
+        assert_eq!(data.len(), buf.len());
+        for (a, b) in data.iter().zip(&buf) {
+            assert_eq!(*a, *b)
+        }
+
+        // Limit exceeded
+        data.push(123);
+        let buf = compress_decompress(&data);
+        assert!(buf.len() <= MAX_PART_LEN as usize);
+        assert_ne!(data.len(), buf.len());
+    }
+
+    #[test]
+    fn test_compression_limit() {
+        check_compression_limit(false);
+        check_compression_limit(true);
     }
 }
