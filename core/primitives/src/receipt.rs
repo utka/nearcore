@@ -10,7 +10,7 @@ use crate::transaction::{Action, TransferAction};
 use crate::types::{AccountId, Balance};
 use crate::utils::system_account;
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct Receipt {
     pub predecessor_id: AccountId,
     pub receiver_id: AccountId,
@@ -50,13 +50,13 @@ impl Receipt {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Clone, Debug, PartialEq, Eq)]
 pub enum ReceiptEnum {
     Action(ActionReceipt),
     Data(DataReceipt),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 pub struct ActionReceipt {
     pub signer_id: AccountId,
     pub signer_public_key: PublicKey,
@@ -71,13 +71,13 @@ pub struct ActionReceipt {
     pub actions: Vec<Action>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, Clone, Debug, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Hash, Clone, Debug, PartialEq, Eq)]
 pub struct DataReceiver {
     pub data_id: CryptoHash,
     pub receiver_id: AccountId,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Clone)]
 pub struct DataReceipt {
     pub data_id: CryptoHash,
     pub data: Option<Vec<u8>>,
@@ -92,7 +92,7 @@ impl fmt::Debug for DataReceipt {
     }
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Hash, PartialEq, Eq, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Hash, PartialEq, Eq, Clone)]
 pub struct ReceivedData {
     pub data: Option<Vec<u8>>,
 }

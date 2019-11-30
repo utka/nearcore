@@ -9,14 +9,13 @@ use actix::{
     Recipient, Running, StreamHandler, WrapFuture,
 };
 use log::{debug, error, info, warn};
-use tokio::io::WriteHalf;
-use tokio::net::TcpStream;
-
 use near_metrics;
 use near_primitives::block::GenesisId;
 use near_primitives::hash::CryptoHash;
 use near_primitives::unwrap_option_or_return;
 use near_primitives::utils::DisplayOption;
+use tokio::io::WriteHalf;
+use tokio::net::TcpStream;
 
 use crate::codec::{bytes_to_peer_message, peer_message_to_bytes, Codec};
 use crate::rate_counter::RateCounter;
@@ -30,6 +29,8 @@ use crate::types::{
 };
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
+use chrono::Utc;
+use near_telemetry::{telemetry, TelemetryActor};
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -148,6 +149,8 @@ pub struct Peer {
     chain_info: PeerChainInfo,
     /// Edge information needed to build the real edge. This is relevant for handshake.
     edge_info: Option<EdgeInfo>,
+    /// Telemetry endpoint used for debug.
+    debug_telemetry_addr: Addr<TelemetryActor>,
 }
 
 impl Peer {
@@ -161,6 +164,7 @@ impl Peer {
         peer_manager_addr: Addr<PeerManagerActor>,
         client_addr: Recipient<NetworkClientMessages>,
         edge_info: Option<EdgeInfo>,
+        debug_telemetry_addr: Addr<TelemetryActor>,
     ) -> Self {
         Peer {
             node_info,
@@ -176,6 +180,7 @@ impl Peer {
             genesis_id: Default::default(),
             chain_info: Default::default(),
             edge_info,
+            debug_telemetry_addr,
         }
     }
 
@@ -467,6 +472,17 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
                 return;
             }
         };
+
+        telemetry(
+            &self.debug_telemetry_addr,
+            serde_json::json!({
+            "me" : self.node_info.id,
+            "from": self.peer_id(),
+            "time": Utc::now(),
+            "size" : msg.len(),
+            "message": peer_msg
+            }),
+        );
 
         peer_msg.record(msg.len());
 

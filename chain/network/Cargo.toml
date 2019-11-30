@@ -13,6 +13,7 @@ futures = "0.1"
 chrono = { version = "0.4.4", features = ["serde"] }
 serde = "1.0"
 serde_derive = "1.0"
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
 rand = "0.7"
 reed-solomon-erasure = "3.1.1"
 byteorder = "1.2"
@@ -26,6 +27,7 @@ near-primitives = { path = "../../core/primitives" }
 near-store = { path = "../../core/store" }
 near-metrics = { path = "../../core/metrics" }
 near-chain = { path = "../chain" }
+near-telemetry = { path = "../telemetry" }
 
 [dev-dependencies]
 tempdir = "0.3.7"

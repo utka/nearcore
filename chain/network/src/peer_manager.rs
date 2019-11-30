@@ -40,6 +40,7 @@ use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
+use near_telemetry::{TelemetryActor, TelemetryConfig};
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -90,6 +91,9 @@ pub struct PeerManagerActor {
     monitor_peers_attempts: u64,
     /// Active peers we have sent new edge update, but we haven't received response so far.
     pending_update_nonce_request: HashMap<PeerId, u64>,
+    // TODO(MarX): Enable/Disable this
+    /// Telemetry endpoint used for debug.
+    debug_telemetry_addr: Addr<TelemetryActor>,
 }
 
 impl PeerManagerActor {
@@ -100,6 +104,11 @@ impl PeerManagerActor {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
+
+        let debug_telemetry_addr = TelemetryActor::new(TelemetryConfig {
+            endpoints: vec!["http://localhost:8181".to_string()],
+        })
+        .start();
 
         let me = config.public_key.clone().into();
         Ok(PeerManagerActor {
@@ -112,6 +121,7 @@ impl PeerManagerActor {
             routing_table: RoutingTable::new(me, store),
             monitor_peers_attempts: 0,
             pending_update_nonce_request: HashMap::new(),
+            debug_telemetry_addr,
         })
     }
 
@@ -247,6 +257,7 @@ impl PeerManagerActor {
         let server_addr = self.config.addr;
         let handshake_timeout = self.config.handshake_timeout;
         let client_addr = self.client_addr.clone();
+        let debug_telemetry_addr = self.debug_telemetry_addr.clone();
         Peer::create(move |ctx| {
             let server_addr = server_addr.unwrap_or_else(|| stream.local_addr().unwrap());
             let remote_addr = stream.peer_addr().unwrap();
@@ -265,6 +276,7 @@ impl PeerManagerActor {
                 recipient,
                 client_addr,
                 edge_info,
+                debug_telemetry_addr,
             )
         });
     }

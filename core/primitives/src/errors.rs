@@ -4,7 +4,7 @@ use near_crypto::PublicKey;
 use std::fmt::Display;
 
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum StorageError {
     /// Key-value db internal failure
     StorageInternalError,
@@ -27,14 +27,14 @@ impl std::fmt::Display for StorageError {
 impl std::error::Error for StorageError {}
 
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct GasOverflowError;
 /// Internal
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub struct BalanceOverflowError;
 
 /// External
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidTxError {
     InvalidSigner(AccountId),
     SignerDoesNotExist(AccountId),
@@ -49,7 +49,7 @@ pub enum InvalidTxError {
     Expired,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum InvalidAccessKeyError {
     AccessKeyNotFound(AccountId, PublicKey),
     ReceiverMismatch(AccountId, AccountId),
@@ -58,7 +58,7 @@ pub enum InvalidAccessKeyError {
     NotEnoughAllowance(AccountId, PublicKey, Balance, Balance),
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ActionError {
     AccountAlreadyExists(AccountId),
     AccountDoesNotExist(String, AccountId),
@@ -341,7 +341,7 @@ impl Display for ActionError {
 }
 
 /// Error returned in the ExecutionOutcome in case of failure.
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError {
     Action(ActionError),
     InvalidTx(InvalidTxError),
