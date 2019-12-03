@@ -62,6 +62,13 @@ pub fn start_with_config(
     ));
 
     let telemetry = TelemetryActor::new(config.telemetry_config.clone()).start();
+
+    let debug_telemetry = if config.debug_telemetry.endpoints.is_empty() {
+        None
+    } else {
+        Some(TelemetryActor::new(config.debug_telemetry.clone()).start())
+    };
+
     let chain_genesis = ChainGenesis::new(
         config.genesis_config.genesis_time,
         config.genesis_config.gas_limit,
@@ -103,6 +110,7 @@ pub fn start_with_config(
         config.network_config,
         client_actor.clone().recipient(),
         view_client.clone().recipient(),
+        debug_telemetry,
     )
     .unwrap()
     .start();

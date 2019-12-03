@@ -31,7 +31,7 @@ use crate::types::{
 use crate::PeerManagerActor;
 use crate::{metrics, NetworkResponses};
 use chrono::Utc;
-use near_telemetry::{telemetry, TelemetryActor};
+use near_telemetry::{telemetry_if, TelemetryActor};
 
 /// Maximum number of requests and responses to track.
 const MAX_TRACK_SIZE: usize = 30;
@@ -153,7 +153,7 @@ pub struct Peer {
     /// Edge information needed to build the real edge. This is relevant for handshake.
     edge_info: Option<EdgeInfo>,
     /// Telemetry endpoint used for debug.
-    debug_telemetry_addr: Addr<TelemetryActor>,
+    debug_telemetry_addr: Option<Addr<TelemetryActor>>,
 }
 
 impl Peer {
@@ -168,7 +168,7 @@ impl Peer {
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
         edge_info: Option<EdgeInfo>,
-        debug_telemetry_addr: Addr<TelemetryActor>,
+        debug_telemetry_addr: Option<Addr<TelemetryActor>>,
     ) -> Self {
         Peer {
             node_info,
@@ -343,8 +343,6 @@ impl Peer {
         near_metrics::inc_counter(&metrics::PEER_CLIENT_MESSAGE_RECEIVED_TOTAL);
         let peer_id = unwrap_option_or_return!(self.peer_id());
 
-        let mut msg_hash = None;
-
         // Wrap peer message into what client expects.
         let network_client_msg = match msg {
             PeerMessage::Block(block) => {
@@ -380,7 +378,7 @@ impl Peer {
             }
             // All Routed messages received at this point are for us.
             PeerMessage::Routed(routed_message) => {
-                msg_hash = Some(routed_message.hash());
+                let msg_hash = Some(routed_message.hash());
 
                 match routed_message.body {
                     RoutedMessageBody::BlockApproval(approval) => {
@@ -528,16 +526,15 @@ impl StreamHandler<Vec<u8>, io::Error> for Peer {
             }
         };
 
-        telemetry(
-            &self.debug_telemetry_addr,
+        telemetry_if(self.debug_telemetry_addr.as_ref(), || {
             serde_json::json!({
             "me" : self.node_info.id,
             "from": self.peer_id(),
             "time": Utc::now(),
             "size" : msg.len(),
             "message": peer_msg
-            }),
-        );
+            })
+        });
 
         peer_msg.record(msg.len());
 

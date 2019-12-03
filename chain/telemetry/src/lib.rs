@@ -70,3 +70,11 @@ impl Handler<TelemetryEvent> for TelemetryActor {
 pub fn telemetry(telemetry: &Addr<TelemetryActor>, content: serde_json::Value) {
     telemetry.do_send(TelemetryEvent { content });
 }
+pub fn telemetry_if<F>(telemetry: Option<&Addr<TelemetryActor>>, content_fn: F)
+where
+    F: FnOnce() -> serde_json::Value,
+{
+    if let Some(addr) = telemetry {
+        addr.do_send(TelemetryEvent { content: content_fn() })
+    }
+}

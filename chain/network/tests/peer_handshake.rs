@@ -49,8 +49,14 @@ fn make_peer_manager(
         Box::new(Some(NetworkViewClientResponses::NoResponse))
     }))
     .start();
-    PeerManagerActor::new(store, config, client_addr.recipient(), view_client_addr.recipient())
-        .unwrap()
+    PeerManagerActor::new(
+        store,
+        config,
+        client_addr.recipient(),
+        view_client_addr.recipient(),
+        None,
+    )
+    .unwrap()
 }
 
 #[test]

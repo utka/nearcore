@@ -94,6 +94,7 @@ pub fn setup_network_node(
             config,
             client_actor.recipient(),
             view_client_actor.recipient(),
+            None,
         )
         .unwrap()
     });

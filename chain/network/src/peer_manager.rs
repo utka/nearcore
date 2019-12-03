@@ -41,7 +41,7 @@ use crate::types::{
     NetworkClientMessages, NetworkConfig, NetworkRequests, NetworkResponses, PeerInfo,
 };
 use crate::NetworkClientResponses;
-use near_telemetry::{TelemetryActor, TelemetryConfig};
+use near_telemetry::TelemetryActor;
 
 /// How often to request peers from active peers.
 const REQUEST_PEERS_SECS: i64 = 60;
@@ -96,7 +96,7 @@ pub struct PeerManagerActor {
     pending_update_nonce_request: HashMap<PeerId, u64>,
     // TODO(MarX): Enable/Disable this
     /// Telemetry endpoint used for debug.
-    debug_telemetry_addr: Addr<TelemetryActor>,
+    debug_telemetry_addr: Option<Addr<TelemetryActor>>,
 }
 
 impl PeerManagerActor {
@@ -105,14 +105,10 @@ impl PeerManagerActor {
         config: NetworkConfig,
         client_addr: Recipient<NetworkClientMessages>,
         view_client_addr: Recipient<NetworkViewClientMessages>,
+        debug_telemetry_addr: Option<Addr<TelemetryActor>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let peer_store = PeerStore::new(store.clone(), &config.boot_nodes)?;
         debug!(target: "network", "Found known peers: {} (boot nodes={})", peer_store.len(), config.boot_nodes.len());
-
-        let debug_telemetry_addr = TelemetryActor::new(TelemetryConfig {
-            endpoints: vec!["http://localhost:8181".to_string()],
-        })
-        .start();
 
         let me = config.public_key.clone().into();
         Ok(PeerManagerActor {
