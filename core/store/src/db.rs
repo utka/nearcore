@@ -84,6 +84,7 @@ pub enum DBCol {
     ColChunkPerHeightShard = 35,
     /// Changes to key-values that we have recorded.
     ColKeyValueChanges = 36,
+    ColTrieChanges = 37,
 }
 
 impl std::fmt::Display for DBCol {
@@ -126,12 +127,13 @@ impl std::fmt::Display for DBCol {
             Self::ColTransactions => "transactions",
             Self::ColChunkPerHeightShard => "hash of chunk per height and shard_id",
             Self::ColKeyValueChanges => "key value changes",
+            Self::ColTrieChanges => "trie changes",
         };
         write!(formatter, "{}", desc)
     }
 }
 
-const NUM_COLS: usize = 37;
+const NUM_COLS: usize = 38;
 
 pub struct DBTransaction {
     pub ops: Vec<DBOp>,

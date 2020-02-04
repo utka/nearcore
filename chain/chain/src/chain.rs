@@ -24,14 +24,14 @@ use near_primitives::transaction::{
 };
 use near_primitives::types::{
     AccountId, Balance, BlockExtra, BlockHeight, BlockHeightDelta, ChunkExtra, EpochId, Gas,
-    NumBlocks, ShardId, ValidatorStake,
+    NumBlocks, ShardId, StateHeaderKey, ValidatorStake,
 };
 use near_primitives::unwrap_or_return;
 use near_primitives::views::{
     ExecutionOutcomeWithIdView, ExecutionStatusView, FinalExecutionOutcomeView,
     FinalExecutionStatus, LightClientBlockView,
 };
-use near_store::{ColStateHeaders, ColStateParts, Store};
+use near_store::{ColStateHeaders, ColStateParts, Store, Trie};
 
 use crate::error::{Error, ErrorKind};
 use crate::finality::{ApprovalVerificationError, FinalityGadget, FinalityGadgetQuorums};
@@ -40,7 +40,7 @@ use crate::store::{ChainStore, ChainStoreAccess, ChainStoreUpdate, ShardInfo, St
 use crate::types::{
     AcceptedBlock, ApplyTransactionResult, Block, BlockHeader, BlockStatus, Provenance,
     ReceiptList, ReceiptProofResponse, ReceiptResponse, RootProof, RuntimeAdapter,
-    ShardStateSyncResponseHeader, StateHeaderKey, StatePartKey, Tip,
+    ShardStateSyncResponseHeader, StatePartKey, Tip,
 };
 use crate::validate::{
     validate_challenge, validate_chunk_proofs, validate_chunk_transactions,
@@ -521,14 +521,14 @@ impl Chain {
         });
     }
 
-    pub fn clear_old_data(&mut self) -> Result<(), Error> {
+    pub fn clear_old_data(&mut self, trie: Arc<Trie>) -> Result<(), Error> {
         let mut chain_store_update = self.store.store_update();
         let head = chain_store_update.head()?;
         let height_diff = NUM_EPOCHS_TO_KEEP_STORE_DATA * self.epoch_length;
         if head.height >= height_diff {
             let last_height = head.height - height_diff;
             for height in last_height.saturating_sub(HEIGHTS_TO_CLEAR)..last_height {
-                match chain_store_update.clear_old_data_on_height(height) {
+                match chain_store_update.clear_old_data_on_height(trie.clone(), height) {
                     Ok(_) => {}
                     Err(err) => {
                         error!(target: "client", "Error clearing old data on height {:?}, {:?}", height, err);

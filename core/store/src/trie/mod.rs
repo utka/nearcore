@@ -22,7 +22,7 @@ use crate::trie::trie_storage::{
     TrieStorage,
 };
 use crate::{ColState, StorageError, Store, StoreUpdate};
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 mod insert_delete;
 pub mod iterator;
@@ -445,6 +445,7 @@ pub struct Trie {
 /// Having old_root and values in deletions allows to apply TrieChanges in reverse
 ///
 /// StoreUpdate are the changes from current state refcount to refcount + delta.
+#[derive(BorshSerialize, BorshDeserialize, Clone)]
 pub struct TrieChanges {
     #[allow(dead_code)]
     old_root: StateRoot,
@@ -481,23 +482,7 @@ impl TrieChanges {
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        store_update.trie = Some(trie.clone());
-        for (key, value, rc) in self.insertions.iter() {
-            let storage_rc = trie
-                .storage
-                .as_caching_storage()
-                .expect("Must be caching storage")
-                .retrieve_rc(&key)
-                .unwrap_or_default();
-            assert!(*rc <= storage_rc);
-            if *rc < storage_rc {
-                let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
-                store_update.set(ColState, key.as_ref(), &bytes);
-            } else {
-                store_update.delete(ColState, key.as_ref());
-            }
-        }
-        Ok(())
+        self.deletions_into_inner(&self.insertions, trie, store_update)
     }
 
     pub fn deletions_into(
@@ -505,8 +490,17 @@ impl TrieChanges {
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.deletions_into_inner(&self.deletions, trie, store_update)
+    }
+
+    pub fn deletions_into_inner(
+        &self,
+        deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
+        trie: Arc<Trie>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         store_update.trie = Some(trie.clone());
-        for (key, value, rc) in self.deletions.iter() {
+        for (key, value, rc) in deletions.iter() {
             let storage_rc = trie
                 .storage
                 .as_caching_storage()
@@ -597,6 +591,10 @@ impl WrappedTrieChanges {
             store_update.set(ColKeyValueChanges, storage_key.as_ref(), &value);
         }
         Ok(())
+    }
+
+    pub fn get_trie_changes(&self) -> (CryptoHash, TrieChanges) {
+        (self.block_hash, self.trie_changes.clone())
     }
 }
 

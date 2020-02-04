@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::Serialize;
@@ -20,7 +21,7 @@ use near_primitives::types::{
     StateChangesRequest, StateRoot, StateRootNode, ValidatorStake, ValidatorStats,
 };
 use near_primitives::views::{EpochValidatorInfo, QueryRequest, QueryResponse};
-use near_store::{PartialStorage, StoreUpdate, WrappedTrieChanges};
+use near_store::{PartialStorage, StoreUpdate, Trie, WrappedTrieChanges};
 
 use crate::error::Error;
 
@@ -32,9 +33,6 @@ pub struct ReceiptProofResponse(pub CryptoHash, pub Vec<ReceiptProof>);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct RootProof(pub CryptoHash, pub MerklePath);
-
-#[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
-pub struct StateHeaderKey(pub ShardId, pub CryptoHash);
 
 #[derive(PartialEq, Eq, Clone, Debug, BorshSerialize, BorshDeserialize, Serialize)]
 pub struct StatePartKey(pub CryptoHash, pub ShardId, pub u64 /* PartId */);
@@ -115,6 +113,9 @@ pub trait RuntimeAdapter: Send + Sync {
     /// Initialize state to genesis state and returns StoreUpdate, state root and initial validators.
     /// StoreUpdate can be discarded if the chain past the genesis.
     fn genesis_state(&self) -> (StoreUpdate, Vec<StateRoot>);
+
+    /// Returns trie.
+    fn get_trie(&self) -> Arc<Trie>;
 
     /// Verify block producer validity
     fn verify_block_signature(&self, header: &BlockHeader) -> Result<(), Error>;
