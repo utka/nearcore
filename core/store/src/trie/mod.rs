@@ -476,6 +476,30 @@ impl TrieChanges {
         Ok(())
     }
 
+    pub fn revert_insertions_into(
+        &self,
+        trie: Arc<Trie>,
+        store_update: &mut StoreUpdate,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        store_update.trie = Some(trie.clone());
+        for (key, value, rc) in self.insertions.iter() {
+            let storage_rc = trie
+                .storage
+                .as_caching_storage()
+                .expect("Must be caching storage")
+                .retrieve_rc(&key)
+                .unwrap_or_default();
+            assert!(*rc <= storage_rc);
+            if *rc < storage_rc {
+                let bytes = RcTrieNode::encode(&value, storage_rc - rc)?;
+                store_update.set(ColState, key.as_ref(), &bytes);
+            } else {
+                store_update.delete(ColState, key.as_ref());
+            }
+        }
+        Ok(())
+    }
+
     pub fn deletions_into(
         &self,
         trie: Arc<Trie>,
