@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 use std::convert::TryFrom;
 
 use actix::{Actor, System};
@@ -5,22 +6,23 @@ use futures::{future, FutureExt};
 
 use near_crypto::{KeyType, PublicKey, Signature};
 use near_jsonrpc::client::new_client;
-use near_jsonrpc::test_utils::start_all;
 use near_jsonrpc_client::ChunkId;
 use near_network::test_utils::WaitOrTimeout;
 use near_primitives::account::{AccessKey, AccessKeyPermission};
 use near_primitives::hash::CryptoHash;
-use near_primitives::rpc::RpcQueryRequest;
+use near_primitives::rpc::{RpcGenesisRecordsRequest, RpcPagination, RpcQueryRequest};
 use near_primitives::test_utils::init_test_logger;
 use near_primitives::types::{BlockId, ShardId};
 use near_primitives::views::{Finality, QueryRequest, QueryResponseKind};
+
+mod test_utils;
 
 macro_rules! test_with_client {
     ($client:ident, $block:expr) => {
         init_test_logger();
 
         System::run(|| {
-            let (_view_client_addr, addr) = start_all(false);
+            let (_view_client_addr, addr) = test_utils::start_all(false);
 
             let mut $client = new_client(&format!("http://{}", addr));
 
@@ -372,7 +374,7 @@ fn test_status_fail() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(false);
+        let (_, addr) = test_utils::start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -414,7 +416,7 @@ fn test_health_fail_no_blocks() {
     init_test_logger();
 
     System::run(|| {
-        let (_, addr) = start_all(false);
+        let (_, addr) = test_utils::start_all(false);
 
         let mut client = new_client(&format!("http://{}", addr));
         WaitOrTimeout::new(
@@ -440,6 +442,283 @@ fn test_health_ok() {
     test_with_client!(client, async move {
         let health = client.health().await;
         assert!(health.is_ok());
+    });
+}
+
+/// Retrieve genesis config via JSON RPC.
+/// WARNING: Be mindful about changing genesis structure as it is part of the public protocol!
+#[test]
+fn test_genesis_config() {
+    test_with_client!(client, async move {
+        let genesis_config = client.EXPERIMENTAL_genesis_config().await.unwrap();
+        assert_eq!(
+            genesis_config,
+            serde_json::json!({
+                "config_version": 1,
+                "protocol_version": 4,
+                "genesis_time": "2019-06-04T06:13:25Z",
+                "chain_id": "testnet",
+                "num_block_producer_seats": 50,
+                "num_block_producer_seats_per_shard": [7, 7, 6, 6, 6, 6, 6, 6],
+                "avg_hidden_validator_seats_per_shard": [0, 0, 0, 0, 0, 0, 0, 0],
+                "dynamic_resharding": false,
+                "epoch_length": 600,
+                "gas_limit": 1000000000000000u64,
+                "min_gas_price": "5000",
+                "block_producer_kickout_threshold": 80,
+                "chunk_producer_kickout_threshold": 60,
+                "gas_price_adjustment_rate": 1,
+                "runtime_config": {
+                    "storage_cost_byte_per_block": "5000000",
+                    "poke_threshold": 86400,
+                    "transaction_costs": {
+                        "action_receipt_creation_config": {
+                            "send_sir": 924119500000u64,
+                            "send_not_sir": 924119500000u64,
+                            "execution": 924119500000u64
+                        },
+                        "data_receipt_creation_config": {
+                            "base_cost": {
+                                "send_sir": 539890689500u64,
+                                "send_not_sir": 539890689500u64,
+                                "execution": 539890689500u64
+                            },
+                            "cost_per_byte": {
+                                "send_sir": 14234654,
+                                "send_not_sir": 14234654,
+                                "execution": 14234654
+                            }
+                        },
+                        "action_creation_config": {
+                            "create_account_cost": {
+                                "send_sir": 0,
+                                "send_not_sir": 0,
+                                "execution": 0
+                            },
+                            "deploy_contract_cost": {
+                                "send_sir": 513359000000u64,
+                                "send_not_sir": 513359000000u64,
+                                "execution": 513359000000u64
+                            },
+                            "deploy_contract_cost_per_byte": {
+                                "send_sir": 27106233,
+                                "send_not_sir": 27106233,
+                                "execution": 27106233
+                            },
+                            "function_call_cost": {
+                                "send_sir": 1367372500000u64,
+                                "send_not_sir": 1367372500000u64,
+                                "execution": 1367372500000u64
+                            },
+                            "function_call_cost_per_byte": {
+                                "send_sir": 2354953,
+                                "send_not_sir": 2354953,
+                                "execution": 2354953
+                            },
+                            "transfer_cost": {
+                                "send_sir": 13025000000u64,
+                                "send_not_sir": 13025000000u64,
+                                "execution": 13025000000u64
+                            },
+                            "stake_cost": {
+                                "send_sir": 0,
+                                "send_not_sir": 0,
+                                "execution": 0
+                            },
+                            "add_key_cost": {
+                                "full_access_cost": {
+                                    "send_sir": 0,
+                                    "send_not_sir": 0,
+                                    "execution": 0
+                                },
+                                "function_call_cost": {
+                                    "send_sir": 0,
+                                    "send_not_sir": 0,
+                                    "execution": 0
+                                },
+                                "function_call_cost_per_byte": {
+                                    "send_sir": 37538150u64,
+                                    "send_not_sir": 37538150u64,
+                                    "execution": 37538150u64
+                                }
+                            },
+                            "delete_key_cost": {
+                                "send_sir": 0,
+                                "send_not_sir": 0,
+                                "execution": 0
+                            },
+                            "delete_account_cost": {
+                                "send_sir": 454830000000u64,
+                                "send_not_sir": 454830000000u64,
+                                "execution": 454830000000u64
+                            }
+                        },
+                        "storage_usage_config": {
+                            "account_cost": 100,
+                            "data_record_cost": 40,
+                            "key_cost_per_byte": 1,
+                            "value_cost_per_byte": 1,
+                            "code_cost_per_byte": 1
+                        },
+                        "burnt_gas_reward": {
+                            "numerator": 3,
+                            "denominator": 10
+                        }
+                    },
+                    "wasm_config": {
+                        "ext_costs": {
+                            "base": 126224222,
+                            "read_memory_base": 1629369577,
+                            "read_memory_byte": 123816,
+                            "write_memory_base": 76445225,
+                            "write_memory_byte": 809907,
+                            "read_register_base": 639340699,
+                            "read_register_byte": 63637,
+                            "write_register_base": 0,
+                            "write_register_byte": 0,
+                            "utf8_decoding_base": 0,
+                            "utf8_decoding_byte": 591904,
+                            "utf16_decoding_base": 0,
+                            "utf16_decoding_byte": 9095538,
+                            "sha256_base": 710092630,
+                            "sha256_byte": 5536829,
+                            "keccak256_base": 710092630,
+                            "keccak256_byte": 5536829,
+                            "keccak512_base": 1420185260,
+                            "keccak512_byte": 11073658,
+                            "log_base": 0,
+                            "log_byte": 0,
+                            "storage_write_base": 21058769282u64,
+                            "storage_write_key_byte": 23447086,
+                            "storage_write_value_byte": 9437547,
+                            "storage_write_evicted_byte": 0,
+                            "storage_read_base": 19352220621u64,
+                            "storage_read_key_byte": 4792496,
+                            "storage_read_value_byte": 139743,
+                            "storage_remove_base": 109578968621u64,
+                            "storage_remove_key_byte": 9512022,
+                            "storage_remove_ret_value_byte": 0,
+                            "storage_has_key_base": 20019912030u64,
+                            "storage_has_key_byte": 4647597,
+                            "storage_iter_create_prefix_base": 28443562030u64,
+                            "storage_iter_create_prefix_byte": 442354,
+                            "storage_iter_create_range_base": 25804628282u64,
+                            "storage_iter_create_from_byte": 429608,
+                            "storage_iter_create_to_byte": 1302886,
+                            "storage_iter_next_base": 24213271567u64,
+                            "storage_iter_next_key_byte": 0,
+                            "storage_iter_next_value_byte": 1343211668,
+                            "touching_trie_node": 1,
+                            "promise_and_base": 0,
+                            "promise_and_per_promise": 672136,
+                            "promise_return": 34854215,
+                        },
+                        "grow_mem_cost": 1,
+                        "regular_op_cost": 3856371,
+                        "limit_config": {
+                            "max_gas_burnt": 200000000000000u64,
+                            "max_gas_burnt_view": 200000000000000u64,
+                            "max_stack_height": 16384,
+                            "initial_memory_pages": 1024,
+                            "max_memory_pages": 2048,
+                            "registers_memory_limit": 1073741824,
+                            "max_register_size": 104857600,
+                            "max_number_registers": 100,
+                            "max_number_logs": 100,
+                            "max_total_log_length": 16384,
+                            "max_total_prepaid_gas": 10000000000000000u64,
+                            "max_actions_per_receipt": 100,
+                            "max_number_bytes_method_names": 2000,
+                            "max_length_method_name": 256,
+                            "max_arguments_length": 4194304,
+                            "max_length_returned_data": 4194304,
+                            "max_contract_size": 4194304,
+                            "max_length_storage_key": 4194304,
+                            "max_length_storage_value": 4194304,
+                            "max_promises_per_function_call_action": 1024,
+                            "max_number_input_data_dependencies": 128
+                        },
+                    },
+                    "account_length_baseline_cost_per_block": "207909813343189798558"
+                },
+                "validators": [
+                    {
+                        "account_id": "far",
+                        "public_key": "ed25519:7rNEmDbkn8grQREdTt3PWhR1phNtsqJdgfV26XdR35QL",
+                        "amount": "200000000000000000000000000000000000"
+                    }
+                ],
+                "fishermen_threshold": "10000000000000000000",
+                "transaction_validity_period": 1000,
+                "developer_reward_percentage": 30,
+                "protocol_reward_percentage": 10,
+                "max_inflation_rate": 5,
+                "total_supply": "1638390651983309491821349612944000000",
+                "num_blocks_per_year": 31536000,
+                "protocol_treasury_account": "near"
+            })
+        );
+    });
+}
+
+/// Retrieve genesis records via JSON RPC.
+#[test]
+fn test_genesis_records() {
+    test_with_client!(client, async move {
+        let genesis_records = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: Default::default(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(genesis_records.records.len(), 100);
+        let first100_records = genesis_records.records.to_vec();
+
+        let second_genesis_record = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: RpcPagination { offset: 1, limit: 1 },
+            })
+            .await
+            .unwrap();
+        assert_eq!(second_genesis_record.records.len(), 1);
+
+        assert_eq!(
+            serde_json::to_value(&first100_records[1]).unwrap(),
+            serde_json::to_value(&second_genesis_record.records[0]).unwrap()
+        );
+    });
+}
+
+/// Check invalid arguments to genesis records via JSON RPC.
+#[test]
+fn test_invalid_genesis_records_arguments() {
+    test_with_client!(client, async move {
+        let genesis_records_response = client
+            .EXPERIMENTAL_genesis_records(RpcGenesisRecordsRequest {
+                pagination: RpcPagination { offset: 1, limit: 101 },
+            })
+            .await;
+        let validation_error = genesis_records_response.err().unwrap();
+        assert_eq!(validation_error.code, -32_602);
+        assert_eq!(validation_error.message, "Invalid params");
+        assert_eq!(
+            validation_error.data.unwrap(),
+            serde_json::json!({
+                "pagination": {
+                    "limit": [
+                        {
+                            "code": "range",
+                            "message": null,
+                            "params": {
+                                "max": 100.0,
+                                "value": 101,
+                                "min": 1.0,
+                            }
+                        }
+                    ]
+                }
+            })
+        );
     });
 }
 
