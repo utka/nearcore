@@ -170,7 +170,6 @@ impl<'a> VMLogic<'a> {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn save_state(&self) -> InternalVMState {
         InternalVMState {
             /// Keeping track of the current account balance, which can decrease when we create promises
@@ -200,7 +199,7 @@ impl<'a> VMLogic<'a> {
             receipt_to_account: self.receipt_to_account.clone(),
         }
     }
-    #[cfg(target_arch = "wasm32")]
+
     pub fn restore_state(&mut self, state: &InternalVMState) {
         self.current_account_balance = state.current_account_balance;
         self.current_account_locked_balance = state.current_account_locked_balance.clone();

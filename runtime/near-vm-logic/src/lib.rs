@@ -11,7 +11,7 @@ pub use config::{ExtCosts, ExtCostsConfig, VMConfig, VMLimitConfig};
 pub use context::VMContext;
 pub use dependencies::{External, MemoryLike, ValuePtr};
 pub use logic::{VMLogic, VMOutcome};
-#[cfg(target_arch = "wasm32")]
+
 pub use logic::{InternalVMState};
 pub use near_vm_errors::{HostError, VMLogicError};
 pub use types::ReturnData;
