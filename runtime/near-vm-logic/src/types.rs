@@ -26,7 +26,7 @@ pub enum ReturnData {
 
 /// When there is a callback attached to one or more contract calls the execution results of these
 /// calls are available to the contract invoked through the callback.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 pub enum PromiseResult {
     NotReady,
     #[serde(with = "crate::serde_with::bytes_as_str")]

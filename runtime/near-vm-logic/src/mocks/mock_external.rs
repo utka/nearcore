@@ -8,12 +8,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::intrinsics::transmute;
 
 /// Encapsulates fake iterator. Optionally stores, if this iterator is built from prefix.
+#[derive(Clone)]
 struct FakeIterator {
     iterator: Range<'static, Vec<u8>, Vec<u8>>,
     prefix: Option<Vec<u8>>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 /// Emulates the trie and the mock handling code.
 pub struct MockedExternal {
     pub fake_trie: BTreeMap<Vec<u8>, Vec<u8>>,
