@@ -5,6 +5,9 @@ use std::fmt;
 use std::io::{Cursor, ErrorKind, Read, Write};
 use std::sync::{Arc, Mutex};
 
+use rand::seq::SliceRandom;
+use rand::Rng;
+
 use crate::db::{DBOp, DBTransaction};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use cached::Cached;
@@ -482,7 +485,7 @@ impl TrieChanges {
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.deletions_into_inner(&self.insertions, trie, store_update)
+        TrieChanges::deletions_into_inner(&self.insertions, trie, store_update)
     }
 
     pub fn deletions_into(
@@ -490,11 +493,10 @@ impl TrieChanges {
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.deletions_into_inner(&self.deletions, trie, store_update)
+        TrieChanges::deletions_into_inner(&self.deletions, trie, store_update)
     }
 
     pub fn deletions_into_inner(
-        &self,
         deletions: &Vec<(CryptoHash, Vec<u8>, u32)>,
         trie: Arc<Trie>,
         store_update: &mut StoreUpdate,
@@ -593,8 +595,8 @@ impl WrappedTrieChanges {
         Ok(())
     }
 
-    pub fn get_trie_changes(&self) -> (CryptoHash, TrieChanges) {
-        (self.block_hash, self.trie_changes.clone())
+    pub fn get_trie_changes(self) -> (CryptoHash, TrieChanges) {
+        (self.block_hash, self.trie_changes)
     }
 }
 
@@ -913,10 +915,38 @@ impl Trie {
     }
 }
 
+pub fn gen_changes(rng: &mut impl Rng, max_size: usize) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
+    let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
+    let max_length = rng.gen_range(2, 8);
+
+    let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+    let mut result = Vec::new();
+    let delete_probability = rng.gen_range(0.1, 0.5);
+    let size = rng.gen_range(1, max_size);
+    for _ in 0..size {
+        let key_length = rng.gen_range(1, max_length);
+        let key: Vec<u8> = (0..key_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+
+        let delete = rng.gen_range(0.0, 1.0) < delete_probability;
+        if delete {
+            let mut keys: Vec<_> = state.keys().cloned().collect();
+            keys.push(key);
+            let key = keys.choose(rng).unwrap().clone();
+            state.remove(&key);
+            result.push((key.clone(), None));
+        } else {
+            let value_length = rng.gen_range(1, max_length);
+            let value: Vec<u8> =
+                (0..value_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
+            result.push((key.clone(), Some(value.clone())));
+            state.insert(key, value);
+        }
+    }
+    result
+}
+
 #[cfg(test)]
-mod tests {
-    use rand::seq::SliceRandom;
-    use rand::Rng;
+pub mod tests {
     use tempdir::TempDir;
 
     use crate::test_utils::{create_test_store, create_trie};
@@ -1132,40 +1162,6 @@ mod tests {
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
-    }
-
-    pub(crate) fn gen_changes(
-        rng: &mut impl Rng,
-        max_size: usize,
-    ) -> Vec<(Vec<u8>, Option<Vec<u8>>)> {
-        let alphabet = &b"abcdefgh"[0..rng.gen_range(2, 8)];
-        let max_length = rng.gen_range(2, 8);
-
-        let mut state: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        let mut result = Vec::new();
-        let delete_probability = rng.gen_range(0.1, 0.5);
-        let size = rng.gen_range(1, max_size);
-        for _ in 0..size {
-            let key_length = rng.gen_range(1, max_length);
-            let key: Vec<u8> =
-                (0..key_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
-
-            let delete = rng.gen_range(0.0, 1.0) < delete_probability;
-            if delete {
-                let mut keys: Vec<_> = state.keys().cloned().collect();
-                keys.push(key);
-                let key = keys.choose(rng).unwrap().clone();
-                state.remove(&key);
-                result.push((key.clone(), None));
-            } else {
-                let value_length = rng.gen_range(1, max_length);
-                let value: Vec<u8> =
-                    (0..value_length).map(|_| alphabet.choose(rng).unwrap().clone()).collect();
-                result.push((key.clone(), Some(value.clone())));
-                state.insert(key, value);
-            }
-        }
-        result
     }
 
     pub(crate) fn simplify_changes(

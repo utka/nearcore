@@ -1,7 +1,7 @@
 use crate::test_utils::create_trie;
-use crate::trie::tests::{gen_changes, simplify_changes};
+use crate::trie::tests::simplify_changes;
 use crate::trie::trie_storage::{TrieMemoryPartialStorage, TrieStorage};
-use crate::trie::POISONED_LOCK_ERR;
+use crate::trie::{gen_changes, POISONED_LOCK_ERR};
 use crate::{PartialStorage, Trie, TrieUpdate};
 use near_primitives::errors::StorageError;
 use near_primitives::hash::{hash, CryptoHash};

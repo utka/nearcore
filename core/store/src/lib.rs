@@ -31,7 +31,7 @@ pub use crate::trie::{
 
 mod db;
 pub mod test_utils;
-mod trie;
+pub mod trie;
 
 pub struct Store {
     storage: Arc<dyn Database>,

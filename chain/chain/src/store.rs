@@ -2055,14 +2055,14 @@ impl<'a> ChainStoreUpdate<'a> {
         for transaction in self.chain_store_cache_update.transactions.iter() {
             store_update.set_ser(ColTransactions, transaction.get_hash().as_ref(), transaction)?;
         }
-        for trie_changes in self.trie_changes.drain(..) {
-            trie_changes
+        for wrapped_trie_changes in self.trie_changes.drain(..) {
+            wrapped_trie_changes
                 .insertions_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
-            trie_changes
+            wrapped_trie_changes
                 .key_value_changes_into(&mut store_update)
                 .map_err(|err| ErrorKind::Other(err.to_string()))?;
-            let (block_hash, trie_changes) = trie_changes.get_trie_changes();
+            let (block_hash, trie_changes) = wrapped_trie_changes.get_trie_changes();
             store_update.set_ser(ColTrieChanges, block_hash.as_ref(), &trie_changes)?;
         }
 
@@ -2266,14 +2266,16 @@ mod tests {
     use near_primitives::block::Block;
     use near_primitives::errors::InvalidTxError;
     use near_primitives::hash::hash;
-    use near_primitives::types::{BlockHeight, EpochId};
+    use near_primitives::types::{BlockHeight, EpochId, StateRoot};
     use near_primitives::utils::index_to_bytes;
     use near_primitives::validator_signer::{InMemoryValidatorSigner, ValidatorSigner};
     use near_store::test_utils::create_test_store;
+    use near_store::{ColState, Trie, TrieChanges, WrappedTrieChanges};
 
-    use crate::store::ChainStoreAccess;
+    use crate::store::{ChainStoreAccess, ChainStoreUpdate};
     use crate::test_utils::KeyValueRuntime;
     use crate::{Chain, ChainGenesis, DoomslugThresholdMode};
+    use near_store::trie::gen_changes;
 
     fn get_chain() -> Chain {
         let store = create_test_store();
@@ -2537,6 +2539,88 @@ mod tests {
         assert!(chain.mut_store().get_next_block_hash(&blocks[4].hash()).is_ok());
         assert!(chain.mut_store().get_next_block_hash(&blocks[5].hash()).is_err());
         assert!(chain.mut_store().get_next_block_hash(&blocks[6].hash()).is_ok());
+    }
+
+    fn do_fork(
+        mut prev_block: Block,
+        trie: Arc<Trie>,
+        chain: &mut Chain,
+        num_blocks: u64,
+        blocks: &mut Vec<(Block, StateRoot)>,
+    ) {
+        let mut rng = rand::thread_rng();
+        let signer =
+            Arc::new(InMemoryValidatorSigner::from_seed("test1", KeyType::ED25519, "test1"));
+        for i in 0..num_blocks {
+            let mut store_update = chain.mut_store().store_update();
+            let block = Block::empty(&prev_block, &*signer);
+            store_update.save_block(block.clone());
+            store_update.save_block_header(block.header.clone());
+            store_update
+                .chain_store_cache_update
+                .height_to_hashes
+                .insert(i, Some(block.header.hash));
+            store_update.save_next_block_hash(&prev_block.hash(), block.hash());
+
+            let trie_changes_data = gen_changes(&mut rng, 20);
+            let mut state_root = blocks.last().unwrap().1; // TODO
+            let trie_changes = trie.update(&state_root, trie_changes_data.iter().cloned()).unwrap();
+
+            let (trie_store_update, new_root) = trie_changes.clone().into(trie.clone()).unwrap();
+            blocks.push((block.clone(), new_root));
+            store_update.merge(trie_store_update);
+
+            let wrapped_trie_changes = WrappedTrieChanges::new(
+                trie.clone(),
+                trie_changes,
+                Default::default(),
+                block.hash(),
+            );
+            store_update.save_trie_changes(wrapped_trie_changes);
+
+            prev_block = block.clone();
+            store_update.commit().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_clear_old_data_sanity_fork() {
+        let mut chain = get_chain();
+        let trie = chain.runtime_adapter.get_trie().clone();
+        let genesis = chain.get_block_by_height(0).unwrap().clone();
+        let mut prev_block = genesis.clone();
+        let mut blocks = vec![];
+        blocks.push((genesis.clone(), Trie::empty_root()));
+        do_fork(genesis.clone(), trie.clone(), &mut chain, 7, &mut blocks);
+        let source = blocks[2].clone();
+        // TODO execute this to build forks
+        /*for i in 2..7 {
+            do_fork(source.clone(), trie.clone(), &mut store_update, i, &mut blocks);
+        }*/
+
+        chain.epoch_length = 1;
+        // remove 5 blocks
+        // TODO run this
+        //assert!(chain.clear_old_data(trie).is_ok());
+
+        let mut store_update = chain.mut_store().store_update();
+        for (block, sr) in blocks {
+            // WTF it's empty
+            let a = trie
+                .iter(&sr)
+                .unwrap()
+                .map(|item| {
+                    let (key, _) = item.unwrap();
+                    key
+                })
+                .collect::<Vec<_>>();
+            /*let a: Option<Vec<u8>> =
+            store_update.store().get_ser(ColState, block.hash().as_ref()).unwrap();*/
+            println!(
+                "state = {:?}, h = {:?}, status = {:?}",
+                sr, block.header.inner_lite.height, a
+            );
+        }
     }
 
     #[test]

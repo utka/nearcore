@@ -318,7 +318,7 @@ mod tests {
     use near_primitives::hash::{hash, CryptoHash};
 
     use crate::test_utils::create_trie;
-    use crate::trie::tests::gen_changes;
+    use crate::trie::gen_changes;
 
     use super::*;
     use rand::prelude::ThreadRng;
