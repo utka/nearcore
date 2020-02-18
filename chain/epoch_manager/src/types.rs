@@ -8,8 +8,8 @@ use near_primitives::challenge::SlashedValidator;
 use near_primitives::hash::CryptoHash;
 use near_primitives::serialize::to_base;
 use near_primitives::types::{
-    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId, NumSeats,
-    NumShards, ValidatorId, ValidatorStake, ValidatorStats,
+    AccountId, Balance, BlockChunkValidatorStats, BlockHeight, BlockHeightDelta, EpochId,
+    NumBlocks, NumSeats, NumShards, ValidatorId, ValidatorStake,
 };
 
 pub type RngSeed = [u8; 32];
@@ -83,8 +83,8 @@ pub struct BlockInfo {
     pub validator_reward: Balance,
     /// Total supply at this block.
     pub total_supply: Balance,
-    /// Map from validator index to (num_blocks_produced, num_blocks_expected) so far in the given epoch.
-    pub block_tracker: HashMap<ValidatorId, ValidatorStats>,
+    /// Map from validator index to num_blocks_produced so far in the given epoch.
+    pub block_tracker: HashMap<ValidatorId, NumBlocks>,
     /// All proposals in this epoch up to this block
     pub all_proposals: Vec<ValidatorStake>,
 }
@@ -131,27 +131,21 @@ impl BlockInfo {
         &mut self,
         epoch_info: &EpochInfo,
         prev_block_height: BlockHeight,
-        mut prev_block_tracker: HashMap<ValidatorId, ValidatorStats>,
+        mut prev_block_tracker: HashMap<ValidatorId, NumBlocks>,
     ) {
         let block_producer_id = epoch_info.block_producers_settlement
             [(self.height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
         prev_block_tracker
             .entry(block_producer_id)
-            .and_modify(|validator_stats| {
-                validator_stats.produced += 1;
-                validator_stats.expected += 1;
+            .and_modify(|produced| {
+                *produced += 1;
             })
-            .or_insert(ValidatorStats { produced: 1, expected: 1 });
+            .or_insert(1);
         // Iterate over all skipped blocks and increase the number of expected blocks.
         for height in prev_block_height + 1..self.height {
             let block_producer_id = epoch_info.block_producers_settlement
                 [(height as u64 % (epoch_info.block_producers_settlement.len() as u64)) as usize];
-            prev_block_tracker
-                .entry(block_producer_id)
-                .and_modify(|validator_stats| {
-                    validator_stats.expected += 1;
-                })
-                .or_insert(ValidatorStats { produced: 0, expected: 1 });
+            prev_block_tracker.entry(block_producer_id).or_insert(0);
         }
         self.block_tracker = prev_block_tracker;
     }

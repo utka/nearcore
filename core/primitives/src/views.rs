@@ -980,7 +980,6 @@ pub struct CurrentEpochValidatorInfo {
     pub stake: Balance,
     pub shards: Vec<ShardId>,
     pub num_produced_blocks: NumBlocks,
-    pub num_expected_blocks: NumBlocks,
 }
 
 #[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
