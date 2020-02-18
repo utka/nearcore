@@ -945,18 +945,17 @@ impl ChainStoreAccess for ChainStore {
                 utils::key_for_all_postponed_receipts(account_id)
             }
         });
-        let common_key_prefix_len = block_hash.as_ref().len()
-            + match state_changes_request {
-                StateChangesRequest::AccountChanges { .. }
-                | StateChangesRequest::SingleAccessKeyChanges { .. }
-                | StateChangesRequest::AllAccessKeyChanges { .. }
-                | StateChangesRequest::CodeChanges { .. }
-                | StateChangesRequest::SinglePostponedReceiptChanges { .. }
-                | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
-                StateChangesRequest::DataChanges { account_id, .. } => {
-                    utils::key_for_data(account_id, b"").len()
-                }
-            };
+        let common_key_prefix_len = match state_changes_request {
+            StateChangesRequest::AccountChanges { .. }
+            | StateChangesRequest::SingleAccessKeyChanges { .. }
+            | StateChangesRequest::AllAccessKeyChanges { .. }
+            | StateChangesRequest::CodeChanges { .. }
+            | StateChangesRequest::SinglePostponedReceiptChanges { .. }
+            | StateChangesRequest::AllPostponedReceiptChanges { .. } => storage_key.len(),
+            StateChangesRequest::DataChanges { account_id, .. } => {
+                block_hash.as_ref().len() + utils::key_for_data(account_id, b"").len()
+            }
+        };
         let mut changes = StateChanges::new();
         let changes_iter = self.store.iter_prefix_ser::<Vec<(StateChangeCause, Option<Vec<u8>>)>>(
             ColKeyValueChanges,
