@@ -21,17 +21,18 @@ Before you proceed, make sure you have the following software installed:
 
 Clone [nearcore](https://github.com/nearprotocol/nearcore)
 
+To run the NEAR Indexer connected to a network we need to have configs and keys prepopulated. To generate configs for localnet do the following
+
 ```bash
 $ git clone git@github.com:nearprotocol/nearcore.git
-$ cd nearcore
-$ env "NEAR_HOME=$HOME/.near/localnet" cargo run --release --package neard --bin neard init
+$ cd nearcore/tools/indexer/example
+$ cargo run --release -- --home-dir ~/.near/localnet init
 ```
 
 The above commands should initialize necessary configs and keys to run localnet in `~/.near/localnet`.
 
 ```bash
-$ cd tools/indexer/example
-$ cargo run --release ~/.near/localnet/
+$ cargo run --release -- --home-dir ~/.near/localnet/ run
 ```
 
 After the node is started, you should see logs of every block produced in your localnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
@@ -43,11 +44,23 @@ $ env NEAR_ENV=local near --keyPath ~/.near/localnet/validator_key.json create_a
 ```
 
 
-### betanet
+### testnet / betanet
 
-To run the NEAR Indexer connected to betanet we need to have configs and keys prepopulated, you can get them with the [nearup](https://github.com/near/nearup). Clone it and follow the instruction to run non-validating node (leaving account ID empty).
+To run the NEAR Indexer connected to testnet or betanet we need to have configs and keys prepopulated, you can get them with the NEAR Indexer Example like above with a little change. Follow the instructions below to run non-validating node (leaving account ID empty).
 
-Configs for betanet are in the `~/.near/betanet` folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/betanet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
+```bash
+$ cargo run --release --home-dir ~/.near/testnet init --chain-id testnet --download
+```
+
+The above code will download the official genesis config and generate necessary configs. You can replace `testnet` in the command above to different network ID `betanet`.
+
+**NB!** According to changes in `nearcore` config generation we don't fill all the necessary fields in the config file. While this issue is open https://github.com/nearprotocol/nearcore/issues/3156 you need to download config you want and replace the generated one manually.
+ - [testnet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/testnet/config.json)
+ - [betanet config.json](https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore-deploy/betanet/config.json)
+ 
+Replace `config.json` in your `--home-dir` (e.g. `~/.near/testnet/config.json`) with downloaded one.
+
+Configs for the specified network are in the `--home-dir` provided folder. We need to ensure that NEAR Indexer follows all the necessary shards, so `"tracked_shards"` parameters in `~/.near/testnet/config.json` needs to be configured properly. For example, with a single shared network, you just add the shard #0 to the list:
 
 ```
 ...
@@ -59,14 +72,12 @@ Hint: See the Tweaks section below to learn more about further configuration opt
 
 After that we can run NEAR Indexer.
 
-Follow to `nearcore` folder.
 
 ```bash
-$ cd nearcore/tools/indexer/example
-$ cargo run --release ~/.near/betanet
+$ cargo run --release -- --home-dir ~/.near/testnet run
 ```
 
-After the network is synced, you should see logs of every block produced in Betanet. Get back to the code to implement any custom handling of the data flowing into the indexer.
+After the network is synced, you should see logs of every block produced in Testnet. Get back to the code to implement any custom handling of the data flowing into the indexer.
 
 ## Tweaks
 
@@ -79,6 +90,15 @@ As already has been mentioned in this README, the most common tweak you need to 
 "tracked_shards": [0],
 ...
 ```
+
+
+You can choose Indexer Framework sync mode by setting what to stream:
+ - `LatestSynced` - Real-time syncing, always taking the latest finalized block to stream
+ - `FromInterruption` - Starts syncing from the block NEAR Indexer was interrupted last time 
+ - `BlockHeight(u64)` - Specific block height to start syncing from
+ 
+ Refer to `main()` function in [Indexer Example](https://github.com/nearprotocol/nearcore/blob/master/tools/indexer/example/src/main.rs)
+ 
 
 Another tweak changes the default "fast" sync process to a "full" sync process. When the node gets online and observes that its state is missing or outdated, it will do state sync, and that can be done in two strategies:
 
@@ -104,3 +124,11 @@ Indexer Framework also exposes access to the internal APIs (see `Indexer::client
 "archive": true,
 ...
 ```
+
+
+## Who is using NEAR Indexer?
+
+*This list is not exclusive, feel free to submit your project by sending a pull request.*
+
+* [Indexer for NEAR Wallet](https://github.com/near/near-indexer-for-wallet)
+* [Indexer for NEAR Explorer](https://github.com/near/near-indexer-for-explorer)

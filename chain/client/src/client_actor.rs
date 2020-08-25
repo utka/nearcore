@@ -1,15 +1,17 @@
 //! Client actor orchestrates Client and facilitates network connection.
 
-use chrono::Duration as OldDuration;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use actix::{Actor, Addr, Arbiter, AsyncContext, Context, Handler};
+use chrono::Duration as OldDuration;
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, trace, warn};
 
+#[cfg(feature = "delay_detector")]
+use delay_detector::DelayDetector;
 use near_chain::test_utils::format_hash;
 use near_chain::types::AcceptedBlock;
 #[cfg(feature = "adversarial")]
@@ -49,21 +51,20 @@ use crate::types::{
     Error, GetNetworkInfo, NetworkInfoResponse, ShardSyncDownload, ShardSyncStatus, Status,
     StatusSyncInfo, SyncStatus,
 };
+#[cfg(feature = "adversarial")]
+use crate::AdversarialControls;
 use crate::StatusResponse;
 
 /// Multiplier on `max_block_time` to wait until deciding that chain stalled.
 const STATUS_WAIT_TIME_MULTIPLIER: u64 = 10;
-/// Drop blocks whose height are beyond head + horizon.
-const BLOCK_HORIZON: u64 = 500;
+/// `max_block_production_time` times this multiplier is how long we wait before rebroadcasting
+/// the current `head`
+const HEAD_STALL_MULTIPLIER: u32 = 4;
 
 pub struct ClientActor {
     /// Adversarial controls
     #[cfg(feature = "adversarial")]
-    pub adv_sync_height: Option<u64>,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_header_sync: bool,
-    #[cfg(feature = "adversarial")]
-    pub adv_disable_doomslug: bool,
+    pub adv: Arc<RwLock<AdversarialControls>>,
 
     client: Client,
     network_adapter: Arc<dyn NetworkAdapter>,
@@ -114,6 +115,7 @@ impl ClientActor {
         validator_signer: Option<Arc<dyn ValidatorSigner>>,
         telemetry_actor: Addr<TelemetryActor>,
         enable_doomslug: bool,
+        #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
     ) -> Result<Self, Error> {
         wait_until_genesis(&chain_genesis.time);
         if let Some(vs) = &validator_signer {
@@ -132,11 +134,7 @@ impl ClientActor {
         let now = Utc::now();
         Ok(ClientActor {
             #[cfg(feature = "adversarial")]
-            adv_sync_height: None,
-            #[cfg(feature = "adversarial")]
-            adv_disable_header_sync: false,
-            #[cfg(feature = "adversarial")]
-            adv_disable_doomslug: false,
+            adv,
             client,
             network_adapter,
             node_id,
@@ -189,6 +187,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
     type Result = NetworkClientResponses;
 
     fn handle(&mut self, msg: NetworkClientMessages, ctx: &mut Context<Self>) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new(format!("NetworkClientMessage {}", msg.as_ref()).into());
         self.check_triggers(ctx);
 
         match msg {
@@ -197,14 +197,14 @@ impl Handler<NetworkClientMessages> for ClientActor {
                 return match adversarial_msg {
                     NetworkAdversarialMessage::AdvDisableDoomslug => {
                         info!(target: "adversary", "Turning Doomslug off");
-                        self.adv_disable_doomslug = true;
+                        self.adv.write().unwrap().adv_disable_doomslug = true;
                         self.client.doomslug.adv_disable();
                         self.client.chain.adv_disable_doomslug();
                         NetworkClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvDisableHeaderSync => {
                         info!(target: "adversary", "Blocking header sync");
-                        self.adv_disable_header_sync = true;
+                        self.adv.write().unwrap().adv_disable_header_sync = true;
                         NetworkClientResponses::NoResponse
                     }
                     NetworkAdversarialMessage::AdvProduceBlocks(num_blocks, only_valid) => {
@@ -308,7 +308,8 @@ impl Handler<NetworkClientMessages> for ClientActor {
                             }
                         }
                     }
-                    self.receive_block(block, peer_id, was_requested)
+                    self.receive_block(block, peer_id, was_requested);
+                    NetworkClientResponses::NoResponse
                 } else {
                     match self
                         .client
@@ -324,7 +325,7 @@ impl Handler<NetworkClientMessages> for ClientActor {
                         }
                         _ => {}
                     }
-                    return NetworkClientResponses::NoResponse;
+                    NetworkClientResponses::NoResponse
                 }
             }
             NetworkClientMessages::BlockHeaders(headers, peer_id) => {
@@ -502,6 +503,8 @@ impl Handler<Status> for ClientActor {
     type Result = Result<StatusResponse, String>;
 
     fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client status".to_string().into());
         self.check_triggers(ctx);
 
         let head = self.client.chain.head().map_err(|err| err.to_string())?;
@@ -570,6 +573,8 @@ impl Handler<GetNetworkInfo> for ClientActor {
     type Result = Result<NetworkInfoResponse, String>;
 
     fn handle(&mut self, _: GetNetworkInfo, ctx: &mut Context<Self>) -> Self::Result {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client get network info".into());
         self.check_triggers(ctx);
 
         Ok(NetworkInfoResponse {
@@ -722,6 +727,9 @@ impl ClientActor {
         // will prioritize processing messages until mailbox is empty. Execution of any other task
         // scheduled with run_later will be delayed.
 
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client triggers".into());
+
         let mut delay = Duration::from_secs(1);
         let now = Utc::now();
 
@@ -744,6 +752,11 @@ impl ClientActor {
                 ctx,
                 |act, _ctx| act.try_handle_block_production(),
             );
+
+            let _ = self.client.check_head_progress_stalled(
+                self.client.config.max_block_production_delay * HEAD_STALL_MULTIPLIER,
+            );
+
             delay = core::cmp::min(
                 delay,
                 self.block_production_next_attempt.signed_duration_since(now).to_std().unwrap(),
@@ -801,7 +814,8 @@ impl ClientActor {
         match self.client.produce_block(next_height) {
             Ok(Some(block)) => {
                 let block_hash = *block.hash();
-                let res = self.process_block(block, Provenance::PRODUCED);
+                let peer_id = self.node_id.clone();
+                let res = self.process_block(block, Provenance::PRODUCED, &peer_id);
                 match &res {
                     Ok(_) => Ok(()),
                     Err(e) => match e.kind() {
@@ -853,22 +867,33 @@ impl ClientActor {
         &mut self,
         block: Block,
         provenance: Provenance,
+        peer_id: &PeerId,
     ) -> Result<(), near_chain::Error> {
         // If we produced the block, send it out before we apply the block.
         // If we didn't produce the block and didn't request it, do basic validation
         // before sending it out.
         if provenance == Provenance::PRODUCED {
             self.network_adapter.do_send(NetworkRequests::Block { block: block.clone() });
-        } else if provenance == Provenance::NONE {
-            // Don't care about challenge here since it will be handled when we actually process
-            // the block.
-            if self.client.chain.process_block_header(&block.header(), |_| {}).is_ok() {
-                let head = self.client.chain.head()?;
-                // do not broadcast blocks that are too far back.
-                if head.height < block.header().height()
-                    || &head.epoch_id == block.header().epoch_id()
-                {
-                    self.client.rebroadcast_block(block.clone());
+        } else {
+            match self.client.chain.validate_block(&block) {
+                Ok(_) => {
+                    let head = self.client.chain.head()?;
+                    // do not broadcast blocks that are too far back.
+                    if (head.height < block.header().height()
+                        || &head.epoch_id == block.header().epoch_id())
+                        && provenance == Provenance::NONE
+                    {
+                        self.client.rebroadcast_block(block.clone());
+                    }
+                }
+                Err(e) => {
+                    if e.is_bad_data() {
+                        self.network_adapter.do_send(NetworkRequests::BanPeer {
+                            peer_id: peer_id.clone(),
+                            ban_reason: ReasonForBan::BadBlockHeader,
+                        });
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -877,28 +902,17 @@ impl ClientActor {
         result.map(|_| ())
     }
 
-    /// Processes received block, returns boolean if block was reasonable or malicious.
-    fn receive_block(
-        &mut self,
-        block: Block,
-        peer_id: PeerId,
-        was_requested: bool,
-    ) -> NetworkClientResponses {
+    /// Processes received block. Ban peer if the block header is invalid or the block is ill-formed.
+    fn receive_block(&mut self, block: Block, peer_id: PeerId, was_requested: bool) {
         let hash = *block.hash();
         debug!(target: "client", "{:?} Received block {} <- {} at {} from {}, requested: {}", self.client.validator_signer.as_ref().map(|vs| vs.validator_id()), hash, block.header().prev_hash(), block.header().height(), peer_id, was_requested);
-        // drop the block if it is too far ahead
-        let head = unwrap_or_return!(self.client.chain.head(), NetworkClientResponses::NoResponse);
-        if block.header().height() >= head.height + BLOCK_HORIZON {
-            debug!(target: "client", "dropping block {} that is too far ahead. Block height {} current head height {}", block.hash(), block.header().height(), head.height);
-            return NetworkClientResponses::NoResponse;
-        }
         let prev_hash = *block.header().prev_hash();
         let provenance =
             if was_requested { near_chain::Provenance::SYNC } else { near_chain::Provenance::NONE };
-        match self.process_block(block, provenance) {
-            Ok(_) => NetworkClientResponses::NoResponse,
+        match self.process_block(block, provenance, &peer_id) {
+            Ok(_) => {}
             Err(ref err) if err.is_bad_data() => {
-                NetworkClientResponses::Ban { ban_reason: ReasonForBan::BadBlock }
+                warn!(target: "client", "receive bad block: {}", err);
             }
             Err(ref err) if err.is_error() => {
                 if self.client.sync_status.is_syncing() {
@@ -908,14 +922,12 @@ impl ClientActor {
                 } else {
                     error!(target: "client", "Error on receival of block: {}", err);
                 }
-                NetworkClientResponses::NoResponse
             }
             Err(e) => match e.kind() {
                 near_chain::ErrorKind::Orphan => {
                     if !self.client.chain.is_orphan(&prev_hash) {
                         self.request_block_by_hash(prev_hash, peer_id)
                     }
-                    NetworkClientResponses::NoResponse
                 }
                 near_chain::ErrorKind::ChunksMissing(missing_chunks) => {
                     debug!(
@@ -927,11 +939,9 @@ impl ClientActor {
                         missing_chunks.iter().map(|header| header.chunk_hash()).collect::<Vec<_>>()
                     );
                     self.client.shards_mgr.request_chunks(missing_chunks);
-                    NetworkClientResponses::NoResponse
                 }
                 _ => {
                     debug!(target: "client", "Process block: block {} refused by chain: {}", hash, e.kind());
-                    NetworkClientResponses::NoResponse
                 }
             },
         }
@@ -1015,7 +1025,7 @@ impl ClientActor {
     fn needs_syncing(&self, needs_syncing: bool) -> bool {
         #[cfg(feature = "adversarial")]
         {
-            if self.adv_disable_header_sync {
+            if self.adv.read().unwrap().adv_disable_header_sync {
                 return false;
             }
         }
@@ -1062,6 +1072,8 @@ impl ClientActor {
 
     /// Runs catchup on repeat, if this client is a validator.
     fn catchup(&mut self, ctx: &mut Context<ClientActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client catchup".into());
         match self.client.run_catchup(&self.network_info.highest_height_peers) {
             Ok(accepted_blocks) => {
                 self.process_accepted_blocks(accepted_blocks);
@@ -1098,6 +1110,8 @@ impl ClientActor {
 
     /// Main syncing job responsible for syncing client with other peers.
     fn sync(&mut self, ctx: &mut Context<ClientActor>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client sync".into());
         // Macro to schedule to call this function later if error occurred.
         macro_rules! unwrap_or_run_later(($obj: expr) => (match $obj {
             Ok(v) => v,
@@ -1261,6 +1275,8 @@ impl ClientActor {
 
     /// Periodically log summary.
     fn log_summary(&self, ctx: &mut Context<Self>) {
+        #[cfg(feature = "delay_detector")]
+        let _d = DelayDetector::new("client log summary".into());
         ctx.run_later(self.client.config.log_summary_period, move |act, ctx| {
             let head = unwrap_or_return!(act.client.chain.head());
             let validators = unwrap_or_return!(act
@@ -1319,6 +1335,7 @@ pub fn start_client(
     network_adapter: Arc<dyn NetworkAdapter>,
     validator_signer: Option<Arc<dyn ValidatorSigner>>,
     telemetry_actor: Addr<TelemetryActor>,
+    #[cfg(feature = "adversarial")] adv: Arc<RwLock<AdversarialControls>>,
 ) -> (Addr<ClientActor>, Arbiter) {
     let client_arbiter = Arbiter::current();
     let client_addr = ClientActor::start_in_arbiter(&client_arbiter, move |_ctx| {
@@ -1331,6 +1348,8 @@ pub fn start_client(
             validator_signer,
             telemetry_actor,
             true,
+            #[cfg(feature = "adversarial")]
+            adv,
         )
         .unwrap()
     });
